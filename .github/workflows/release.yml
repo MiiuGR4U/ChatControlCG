@@ -1,78 +1,66 @@
-# .github/workflows/release.yml
-name: Create ChatControl Release
+# Nome do Workflow: um nome claro e descritivo que aparecerá na aba "Actions" do GitHub.
+name: 'Build ChatControlCG Plugin'
 
+# Gatilho (Trigger): Define quando esta automação deve ser executada.
 on:
+  # Executa a automação em todo 'push' para a branch 'main'.
+  # Se você usa outra branch como principal (ex: 'master' ou 'develop'), altere aqui.
   push:
-    tags:
-      - '*'
+    branches:
+      - 'main'
+  
+  # Permite também que você execute este workflow manualmente pela aba "Actions".
   workflow_dispatch:
 
+# Permissões: Define as permissões que o token do workflow terá.
+# É uma boa prática de segurança definir apenas as permissões necessárias.
+permissions:
+  contents: read      # Permissão para ler o conteúdo do repositório (fazer checkout).
+  actions: read       # Permissão para ler metadados das actions.
+  packages: write     # Permissão necessária para o cache do Maven.
+
+# Jobs: Define as tarefas que serão executadas.
 jobs:
-  build-and-release:
+  # Nome do Job: 'build' é um nome comum para compilação.
+  build:
+    # Máquina Virtual: Define o sistema operacional da máquina que executará o job. 'ubuntu-latest' é o padrão e mais recomendado.
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
+
+    # Passos (Steps): A sequência de comandos que o job executará.
     steps:
-      - name: Checkout repository
+      # Passo 1: Checkout do Código
+      # Utiliza a action oficial 'actions/checkout' para baixar o código do seu repositório para a máquina virtual.
+      - name: 'Checkout repository'
         uses: actions/checkout@v4
 
-      - name: Define Tag and Fetch Changelog
-        id: get_info
-        run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            TAG_NAME="${{ github.ref_name }}"
-          else
-            TAG_NAME=$(gh api repos/kangarko/ChatControl/releases/latest --jq '.tag_name')
-          fi
-          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
-          CHANGELOG_BODY=$(gh api repos/kangarko/ChatControl/releases/tags/$TAG_NAME --jq '.body' 2>/dev/null) || true
-          if [[ -z "$CHANGELOG_BODY" ]]; then
-            CHANGELOG_BODY="Nenhum changelog oficial encontrado para esta tag."
-          fi
-          cat <<EOF >> "$GITHUB_OUTPUT"
-          changelog<<HEREDOC
-          $CHANGELOG_BODY
-          HEREDOC
-          EOF
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up JDK 21
+      # Passo 2: Configurar o Ambiente Java (JDK)
+      # O ChatControl precisa de Java para ser compilado. Esta action configura a versão correta do JDK.
+      # O projeto original usa Java 17, então usaremos a mesma.
+      - name: 'Set up JDK 17'
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          java-version: '17'
+          distribution: 'temurin' # 'Temurin' é uma distribuição popular e confiável do OpenJDK.
+          # Habilita o cache para as dependências do Maven. Isso acelera drasticamente os builds futuros,
+          # pois as bibliotecas baixadas na primeira vez serão reutilizadas.
           cache: 'maven'
 
-      - name: Build and Install 'Foundation' Dependency
-        run: |
-          echo "Cloning and installing the Foundation library..."
-          git clone https://github.com/kangarko/Foundation.git
-          cd Foundation
-          mvn -B install -DskipTests
+      # Passo 3: Compilar o Projeto com Maven
+      # Executa o comando do Maven para compilar o código e empacotar o resultado em um arquivo .jar.
+      # 'mvn' é o executável do Maven.
+      # '-B' (batch mode) evita logs interativos, ideal para automação.
+      # 'clean package' limpa builds antigos e cria o novo pacote (.jar).
+      - name: 'Build with Maven'
+        run: mvn -B clean package
 
-      # --- ALTERAÇÃO AQUI ---
-      - name: Build Bukkit and Velocity Modules
-        run: |
-          # Compila apenas os módulos 'chatcontrol-bukkit' e 'chatcontrol-velocity' e suas dependências internas.
-          # A flag '-pl' significa '--projects', e '-am' significa '--also-make'
-          mvn -B package -pl chatcontrol-bukkit,chatcontrol-velocity -am -DskipTests
-
-      # --- ALTERAÇÃO AQUI ---
-      - name: Prepare Release Assets
-        run: |
-          mkdir -p release_assets
-          # Encontra os JARs nos diretórios de target corretos e os renomeia
-          find chatcontrol-bukkit/target -name "ChatControl-Pro-*.jar" -exec mv {} release_assets/ChatControl-Paper-${{ steps.get_info.outputs.tag_name }}.jar \;
-          find chatcontrol-velocity/target -name "ChatControl-Velocity-*.jar" -exec mv {} release_assets/ChatControl-Velocity-${{ steps.get_info.outputs.tag_name }}.jar \;
-          echo "Assets prepared for release:"
-          ls -l release_assets
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      # Passo 4: Fazer Upload do Artefato da Build
+      # Pega o arquivo .jar gerado no passo anterior e o salva como um "artefato" do workflow.
+      # Isso torna o arquivo .jar final disponível para download na página de resumo da execução.
+      - name: 'Upload build artifact'
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.get_info.outputs.tag_name }}
-          body: ${{ steps.get_info.outputs.changelog }}
-          # Anexa todos os JARs da pasta de assets
-          files: release_assets/*.jar
+          # Nome do artefato que aparecerá para download.
+          name: ChatControlCG-Plugin
+          # Caminho para o arquivo que deve ser salvo. O Maven gera o .jar na pasta 'target/'.
+          # O uso de '*' (wildcard) garante que o arquivo seja encontrado mesmo que a versão mude.
+          path: target/ChatControl-*.jar
