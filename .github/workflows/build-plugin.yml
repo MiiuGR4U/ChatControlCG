@@ -26,13 +26,34 @@ jobs:
       - name: 'Checkout repository'
         uses: actions/checkout@v4
 
-      # CORREÇÃO CRÍTICA: Usa Java 8, conforme o projeto exige.
       - name: 'Set up JDK 8'
         uses: actions/setup-java@v4
         with:
-          java-version: '8' # <<< Alterado de 17 para 8
+          java-version: '8'
           distribution: 'temurin'
           cache: 'maven'
+
+      # NOVO PASSO: Resolve dinamicamente a versão "LATEST" e atualiza os POMs temporariamente
+      - name: 'Resolve LATEST Version Dynamically'
+        run: |
+          echo "Finding the LATEST version number for Foundation library..."
+          
+          # 1. Busca no repositório da biblioteca e extrai o número da versão mais alta
+          LATEST_VERSION=$(curl -sL https://bitbucket.org/kangarko/libraries/raw/master/org/mineacademy/foundation-core/ | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | sort -V | tail -n 1)
+          
+          if [ -z "$LATEST_VERSION" ]; then
+            echo "::error::Could not find the latest version for the Foundation library. Aborting."
+            exit 1
+          fi
+
+          echo "Latest Foundation version detected: ${LATEST_VERSION}"
+          echo "Temporarily replacing 'LATEST' with '${LATEST_VERSION}' in all pom.xml files..."
+
+          # 2. Encontra todos os arquivos pom.xml e substitui a string <version>LATEST</version>
+          # A alteração é apenas na máquina da automação, não afeta seu repositório.
+          find . -name "pom.xml" -print0 | xargs -0 sed -i 's|<version>LATEST</version>|<version>'"${LATEST_VERSION}"'</version>|g'
+          
+          echo "Replacement complete. Proceeding with the build."
 
       - name: 'Build with Maven'
         run: mvn -B clean package
@@ -41,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: plugin-jar
-          path: chatcontrol-bukkit/target/ChatControl-*.jar # Caminho para o JAR final do módulo bukkit
+          path: chatcontrol-bukkit/target/ChatControl-*.jar
           retention-days: 1
 
   release:
@@ -71,7 +92,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md
-          files: ChatControl-*.jar # Nome do arquivo após o download do artefato
+          files: ChatControl-*.jar
           tag_name: ${{ steps.fetch_info.outputs.TAG_NAME }}
           name: "Release ${{ steps.fetch_info.outputs.TAG_NAME }}"
           prerelease: ${{ inputs.is_prerelease }}
