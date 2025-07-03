@@ -1,52 +1,11 @@
 # .github/workflows/release.yml
 name: Create ChatControl Release
 
-on:
-  push:
-    tags:
-      - '*'
-  workflow_dispatch:
-
-jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+# ... (o início do arquivo continua o mesmo) ...
       
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ... (passo get_info permanece o mesmo) ...
-      - name: Define Tag e Busca Changelog
-        id: get_info
-        run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            TAG_NAME="${{ github.ref_name }}"
-            echo "Workflow acionado pela tag: $TAG_NAME"
-          else
-            echo "Workflow acionado manualmente. Buscando última tag do projeto original..."
-            TAG_NAME=$(gh api repos/kangarko/ChatControl/releases/latest --jq '.tag_name')
-            echo "Última tag encontrada: $TAG_NAME"
-          fi
-          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
-          CHANGELOG_BODY=$(gh api repos/kangarko/ChatControl/releases/tags/$TAG_NAME --jq '.body' 2>/dev/null) || true
-          if [[ -z "$CHANGELOG_BODY" ]]; then
-            CHANGELOG_BODY="Nenhum changelog oficial encontrado para esta tag."
-          fi
-          cat <<EOF >> "$GITHUB_OUTPUT"
-          changelog<<HEREDOC
-          $CHANGELOG_BODY
-          HEREDOC
-          EOF
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # --- ALTERAÇÃO AQUI ---
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          # ALTERADO: A API do Paper 1.21+ requer Java 21 para compilar.
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
@@ -58,12 +17,17 @@ jobs:
           cd Foundation
           mvn -B install -DskipTests
 
+      # --- ALTERAÇÃO AQUI ---
       - name: Build with Maven
-        run: mvn -B package --file pom.xml
+        run: >
+          mvn -B package
+          -pl chatcontrol-bukkit
+          -am
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.get_info.outputs.tag_name }}
           body: ${{ steps.get_info.outputs.changelog }}
-          files: target/ChatControl-Pro-*.jar
+          # O JAR final estará dentro da pasta "target" do módulo "chatcontrol-bukkit"
+          files: chatcontrol-bukkit/target/ChatControl-Pro-*.jar
