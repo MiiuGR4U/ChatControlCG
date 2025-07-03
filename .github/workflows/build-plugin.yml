@@ -33,16 +33,17 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # NOVO PASSO: Resolve dinamicamente a versão "LATEST" e atualiza os POMs temporariamente
-      - name: 'Resolve LATEST Version Dynamically'
+      # PASSO CORRIGIDO: Usa a API do Bitbucket para encontrar a versão mais recente.
+      - name: 'Resolve LATEST Version Dynamically via API'
         run: |
-          echo "Finding the LATEST version number for Foundation library..."
+          echo "Finding the LATEST version number for Foundation library via Bitbucket API..."
           
-          # 1. Busca no repositório da biblioteca e extrai o número da versão mais alta
-          LATEST_VERSION=$(curl -sL https://bitbucket.org/kangarko/libraries/raw/master/org/mineacademy/foundation-core/ | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | sort -V | tail -n 1)
+          # 1. Chama a API do Bitbucket para listar o conteúdo do diretório e extrai os nomes das pastas de versão usando 'jq' e 'awk'.
+          API_URL="https://api.bitbucket.org/2.0/repositories/kangarko/libraries/src/master/org/mineacademy/foundation-core/"
+          LATEST_VERSION=$(curl -sL "${API_URL}" | jq -r '.values[] | select(.type == "commit_directory") | .path' | awk -F'/' '{print $NF}' | sort -V | tail -n 1)
           
           if [ -z "$LATEST_VERSION" ]; then
-            echo "::error::Could not find the latest version for the Foundation library. Aborting."
+            echo "::error::Could not find the latest version for the Foundation library using the API. Aborting."
             exit 1
           fi
 
@@ -50,7 +51,6 @@ jobs:
           echo "Temporarily replacing 'LATEST' with '${LATEST_VERSION}' in all pom.xml files..."
 
           # 2. Encontra todos os arquivos pom.xml e substitui a string <version>LATEST</version>
-          # A alteração é apenas na máquina da automação, não afeta seu repositório.
           find . -name "pom.xml" -print0 | xargs -0 sed -i 's|<version>LATEST</version>|<version>'"${LATEST_VERSION}"'</version>|g'
           
           echo "Replacement complete. Proceeding with the build."
